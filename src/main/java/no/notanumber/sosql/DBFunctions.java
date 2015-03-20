@@ -11,11 +11,13 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
+import static no.notanumber.sosql.ColumnType.PrimaryKey;
 import static org.apache.commons.lang.StringUtils.join;
 
 public class DBFunctions {
@@ -24,10 +26,10 @@ public class DBFunctions {
     public static final List<Class<Integer>> INT_TYPES = asList(Integer.class, Integer.TYPE);
     public static final List<Class<Long>> LONG_TYPES = asList(Long.class, Long.TYPE);
     public static final List<Class<Boolean>> BOOL_TYPES = asList(Boolean.class, Boolean.TYPE);
-    private final SimpleWeightedGraph<Table, JoinEdge> tableGraph;
+    private final SimpleWeightedGraph<String, JoinEdge> tableGraph;
+    public final List<String> tables;
     public ComboPooledDataSource pool;
     private final List<DatabaseColumn> columns;
-    private final DatabaseColumnHelper helper;
 
 
     public DBFunctions(String connectionString, String username, String password, int maxConnections, List<DatabaseColumn> columns) {
@@ -44,13 +46,13 @@ public class DBFunctions {
             throw new RuntimeException(e);
         }
         this.columns = Collections.unmodifiableList(columns);
-        helper = new DatabaseColumnHelper(columns);
-        tableGraph = new SimpleWeightedGraph<Table, JoinEdge>(JoinEdge.class) {{
-            asList(Table.values()).forEach(this::addVertex);
+        this.tables = Collections.unmodifiableList(new ArrayList<>(columns.stream().map(c->c.table).collect(Collectors.toSet())));
+        tableGraph = new SimpleWeightedGraph<String, JoinEdge>(JoinEdge.class) {{
+            tables.forEach(this::addVertex);
             columns.stream()
                     .filter(col -> col.type == ColumnType.ForeignKey)
                     .forEach(col -> {
-                        Join join = new Join(helper.getPrimaryKey(col.joinedTo).get(), col);
+                        Join join = new Join(getPrimaryKey(col.joinedTo).get(), col);
                         JoinEdge joinEdge = new JoinEdge(join);
                         addEdge(col.table, col.joinedTo, joinEdge);
 
@@ -64,12 +66,13 @@ public class DBFunctions {
                     leads to it preferring the many-to-many link in this case. As it should.
                      */
 
-                        boolean manyToManyLink = !helper.getPrimaryKey(col.table).isPresent();
+                        boolean manyToManyLink = !getPrimaryKey(col.table).isPresent();
                         int weight = manyToManyLink ? 1 : 2;
                         setEdgeWeight(joinEdge, weight);
                     });
         }};
     }
+
 
     public Connection getConnection() {
         try {
@@ -132,11 +135,11 @@ public class DBFunctions {
                 .collect(toList());
     }
 
-    public Set<Table> getTables(Class<?> clazz, Where... searchParams) {
-        Set<Table> tables = getMappedFields(clazz).stream().map(field -> getColumn(field).table).collect(toSet());
+    public Set<String> getStrings(Class<?> clazz, Where... searchParams) {
+        Set<String> tables = getMappedFields(clazz).stream().map(field -> getColumn(field).table).collect(toSet());
 
         if (searchParams != null) {
-            Stream<Table> tableStream = asList(searchParams).stream()
+            Stream<String> tableStream = asList(searchParams).stream()
                     .map(param -> param.column.table);
             tables.addAll(tableStream.collect(toList()));
         }
@@ -155,11 +158,11 @@ public class DBFunctions {
         return columnFields;
     }
 
-    public Collection<Join> findJoins(Collection<Table> tables) {
+    public Collection<Join> findJoins(Collection<String> tables) {
         Set<Join> joins = new HashSet<>();
-        Set<Pair<Table, Table>> alreadyTried = new HashSet<>();
-        for (Table a : tables) {
-            for (Table b: tables) {
+        Set<Pair<String, String>> alreadyTried = new HashSet<>();
+        for (String a : tables) {
+            for (String b: tables) {
                 if ( a == b || !alreadyTried.add(new Pair<>(a, b))) continue;
                 Stream<Join> jonStream = new DijkstraShortestPath<>(tableGraph, a, b).getPathEdgeList()
                         .stream().map(joinEdge -> joinEdge.join);
@@ -169,16 +172,30 @@ public class DBFunctions {
         return joins;
     }
 
-    public Optional<DatabaseColumn> getPrimaryKey(Table table) {
-        return helper.getPrimaryKey(table);
+    public Optional<DatabaseColumn> getPrimaryKey(String table) {
+        return columns
+                .stream()
+                .filter(c -> (c.type == PrimaryKey && c.table == table))
+                .findFirst();
     }
 
-    public Optional<DatabaseColumn> getForeignKey(Table mainTable, Table manyToMany) {
-        return helper.getForeignKey(mainTable, manyToMany);
+    public Optional<DatabaseColumn> getForeignKey(String mainString, String manyToMany) {
+        return columns
+                .stream()
+                .filter(col -> col.joinedTo == mainString && col.table == manyToMany)
+                .findFirst();
     }
 
-    public Collection<DatabaseColumn>  incomingReferenceColumns(Table table) {
-        return helper.incomingReferenceColumns(table);
+    public Collection<DatabaseColumn>  incomingReferenceColumns(String table) {
+        return columns.stream()
+                .filter(col -> col.type == ColumnType.ForeignKey && col.joinedTo == table)
+                .collect(toList());
+    }
+
+    public Collection<DatabaseColumn> getColumnsFor(String t) {
+        return columns.stream()
+                .filter(c -> c.table == t)
+                .collect(toList());
     }
 
 
@@ -193,12 +210,12 @@ public class DBFunctions {
         return columns.stream().filter(c-> c.columnName.equals(f.getAnnotation(Column.class).columnName())).findFirst().orElseThrow(()->new IllegalArgumentException("No column named " + f.getAnnotation(Column.class).columnName()));
     }
 
-    public <T> Table getMainTable(T newOne) {
-        return getMainTableForClass(newOne.getClass());
+    public <T> String getMainString(T newOne) {
+        return getMainStringForClass(newOne.getClass());
     }
 
-    public <T> Table getMainTableForClass(Class<T> clazz) {
-        List<Table> pks = getMappedFields(clazz).stream()
+    public <T> String getMainStringForClass(Class<T> clazz) {
+        List<String> pks = getMappedFields(clazz).stream()
                 .filter(f -> getColumn(f).type == ColumnType.PrimaryKey)
                 .map(f -> getColumn(f).table)
                 .collect(toList());
@@ -212,11 +229,11 @@ public class DBFunctions {
         return getMappedFields(obj.getClass()).stream().filter(f-> getColumn(f).type == ColumnType.PrimaryKey).findFirst().orElseThrow(() -> new IllegalArgumentException(obj.getClass().getName() + " has no primary key defined"));
     }
 
-    public <A, B> Optional<Table> findManyToManyTable(A from, B to) {
-        Collection<Join> joins = findJoins(asList(getMainTable(from), getMainTable(to)));
+    public <A, B> Optional<String> findManyToManyString(A from, B to) {
+        Collection<Join> joins = findJoins(asList(getMainString(from), getMainString(to)));
         for (Join j : joins) {
-            boolean manyToManyLinkTable = !helper.getPrimaryKey(j.foreign.table).isPresent();
-            if (manyToManyLinkTable) return Optional.of(j.foreign.table);
+            boolean manyToManyLinkString = !getPrimaryKey(j.foreign.table).isPresent();
+            if (manyToManyLinkString) return Optional.of(j.foreign.table);
         }
         return Optional.empty();
     }

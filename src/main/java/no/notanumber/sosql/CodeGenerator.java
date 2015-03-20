@@ -63,19 +63,19 @@ public class CodeGenerator {
     }
 
     public static void createDB(List<DatabaseColumn> columns) {
-        DatabaseColumnHelper helper = new DatabaseColumnHelper(columns);
+        DBFunctions dbFunctions = new DBFunctions("","","",2,columns);
 
-        for (Table t : Table.values()) {
-            System.out.println("CREATE TABLE " + t.name() + " (");
-            List<String> colDefs = helper.getColumnsFor(t).stream().map(col -> StringUtils.join(asList(col.columnName, getDbType(col), getConstraints(col.type)), " ")).collect(toList());
+        for (String t : dbFunctions.tables) {
+            System.out.println("CREATE TABLE " + t + " (");
+            List<String> colDefs = dbFunctions.getColumnsFor(t).stream().map(col -> StringUtils.join(asList(col.columnName, getDbType(col), getConstraints(col.type)), " ")).collect(toList());
             System.out.println(join(colDefs, ",\n"));
             System.out.println(");");
             System.out.println("");
-            System.out.println("ALTER TABLE public." + t.name() + " OWNER TO postgres;");
+            System.out.println("ALTER TABLE public." + t + " OWNER TO postgres;");
             System.out.println("");
-            Optional<DatabaseColumn> pk = helper.getPrimaryKey(t);
+            Optional<DatabaseColumn> pk = dbFunctions.getPrimaryKey(t);
             if (pk.isPresent()) {
-                String seq = t.name() + "_" + pk.get().columnName + "_SEQ";
+                String seq = t + "_" + pk.get().columnName + "_SEQ";
                 System.out.println("CREATE SEQUENCE " + seq);
                 System.out.println("START WITH 1");
                 System.out.println("INCREMENT BY 1");
@@ -84,19 +84,19 @@ public class CodeGenerator {
                 System.out.println("CACHE 1;");
                 System.out.println("");
                 System.out.println("ALTER TABLE public." + seq + " OWNER TO postgres;");
-                System.out.println("ALTER SEQUENCE " + seq + " OWNED BY " + t.name() + "." + pk.get().columnName + ";");
-                System.out.println("ALTER TABLE ONLY " + t.name() + " ALTER COLUMN " + pk.get().columnName + " SET DEFAULT nextval('" + seq + "'::regclass);");
-                System.out.println("ALTER TABLE ONLY " + t.name() + " ADD CONSTRAINT " + pk.get().columnName + " PRIMARY KEY (" + pk.get().columnName + ");");
+                System.out.println("ALTER SEQUENCE " + seq + " OWNED BY " + t + "." + pk.get().columnName + ";");
+                System.out.println("ALTER TABLE ONLY " + t + " ALTER COLUMN " + pk.get().columnName + " SET DEFAULT nextval('" + seq + "'::regclass);");
+                System.out.println("ALTER TABLE ONLY " + t + " ADD CONSTRAINT " + pk.get().columnName + " PRIMARY KEY (" + pk.get().columnName + ");");
             }else {
-                System.out.println("ALTER TABLE ONLY " + t.name() + " ADD CONSTRAINT " + t.name() + "_pkey PRIMARY KEY (" + StringUtils.join(helper.getColumnsFor(t).stream().filter(col -> col.type == ColumnType.ForeignKey).collect(toList()), ", ") + ");");
+                System.out.println("ALTER TABLE ONLY " + t + " ADD CONSTRAINT " + t + "_pkey PRIMARY KEY (" + StringUtils.join(dbFunctions.getColumnsFor(t).stream().filter(col -> col.type == ColumnType.ForeignKey).collect(toList()), ", ") + ");");
             }
             System.out.println("");
         }
         System.out.println("");
         for (DatabaseColumn col : columns) {
             if (col.type == ColumnType.ForeignKey){
-                System.out.println("CREATE INDEX FKI_" + col.columnName + "FK ON " + col.table.name() + " USING btree (" + col.columnName + ");");
-                System.out.println("ALTER TABLE ONLY " + col.table.name() + " ADD CONSTRAINT " + col.columnName + "FK FOREIGN KEY (" + col.columnName + ") REFERENCES " + col.joinedTo.name() + "(" + helper.getPrimaryKey(col.joinedTo).get().columnName + ");");
+                System.out.println("CREATE INDEX FKI_" + col.columnName + "FK ON " + col.table + " USING btree (" + col.columnName + ");");
+                System.out.println("ALTER TABLE ONLY " + col.table + " ADD CONSTRAINT " + col.columnName + "FK FOREIGN KEY (" + col.columnName + ") REFERENCES " + col.joinedTo + "(" + dbFunctions.getPrimaryKey(col.joinedTo).get().columnName + ");");
             }
         }
     }

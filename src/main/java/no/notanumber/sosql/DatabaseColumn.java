@@ -6,17 +6,17 @@ public class DatabaseColumn {
 
     public final String columnName;
 
-    public final Table table;
-    public final Table joinedTo;
+    public final String table;
+    public final String joinedTo;
     public final ColumnType type;
     public final Class<?> clazz;
     public final int length;
 
-    public DatabaseColumn(String columnName, Class<?> clazz, Table table) {
+    public DatabaseColumn(String columnName, Class<?> clazz, String table) {
         this(columnName, clazz, table, 50);
     }
 
-    public DatabaseColumn(String columnName, Class<?> clazz, Table table, int length) {
+    public DatabaseColumn(String columnName, Class<?> clazz, String table, int length) {
         this.columnName = columnName;
         this.clazz = clazz;
         this.table = table;
@@ -25,7 +25,7 @@ public class DatabaseColumn {
         this.length = length;
     }
 
-    public DatabaseColumn(String columnName, Class<?> clazz, Table table, ColumnType type) {
+    public DatabaseColumn(String columnName, Class<?> clazz, String table, ColumnType type) {
         this.columnName = columnName;
         this.clazz = clazz;
         this.table = table;
@@ -34,7 +34,7 @@ public class DatabaseColumn {
         this.length = 50;
     }
     
-    public DatabaseColumn(String columnName, Class<?> clazz, Table table, ColumnType type, Table joinedTo) {
+    public DatabaseColumn(String columnName, Class<?> clazz, String table, ColumnType type, String joinedTo) {
         this.columnName = columnName;
         this.clazz = clazz;
         this.table = table;
