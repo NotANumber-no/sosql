@@ -1,3 +1,5 @@
+package no.notanumber.sosql;
+
 import no.notanumber.sosql.*;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.BlockJUnit4ClassRunner;
@@ -19,9 +21,7 @@ public class DBTestRunner extends BlockJUnit4ClassRunner {
             Properties props = new Properties();
             props.load(DB.class.getResourceAsStream("/so-sql.properties"));
             DB.class.getResourceAsStream("/so-sql.properties").close();
-            Class<?> columnDef = Class.forName(props.getProperty("database-columns"));
-            Method getColumnsMethod = Arrays.asList(columnDef.getMethods()).stream().filter(m -> m.getAnnotation(ColumnDefs.class) != null).findFirst().get();
-            dbFunctions = new DBFunctions(props.getProperty("testdb"), props.getProperty("username"), props.getProperty("password"), 5, (List<DatabaseColumn>) getColumnsMethod.invoke(null));
+            dbFunctions = new DBFunctions(props.getProperty("testdb"), props.getProperty("username"), props.getProperty("password"), 5);
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("Could not find properties file so-sql.properties on classpath");
@@ -34,7 +34,7 @@ public class DBTestRunner extends BlockJUnit4ClassRunner {
 
     @Override
     public void runChild(FrameworkMethod method, RunNotifier notifier) {
-        DB db = new DB(dbFunctions, new BigBrother(dbFunctions));
+        DB db = new DB(dbFunctions, new BigBrother());
         try {
             db.getConnection().setAutoCommit(false);
             setDBField(db);

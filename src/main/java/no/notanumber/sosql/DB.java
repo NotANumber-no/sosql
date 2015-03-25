@@ -49,7 +49,7 @@ public class DB {
     private <T> List<T> select(Class<T> clazz, List<OrderBy> orderBy, Where... whereClause) {
         String select = DBFunctions.makeSelect(clazz, orderBy, whereClause);
 
-        Set<String> tables = dbFunctions.getStrings(clazz, whereClause);
+        Set<String> tables = ColumnHelper.getTables(clazz, whereClause);
         Collection<Join> joins = new ArrayList<>();
         if (tables.size() > 1) {
             joins.addAll(dbFunctions.findJoins(tables));
@@ -92,8 +92,8 @@ public class DB {
                 List<T> list = new ArrayList<>();
                 while (result.next()) {
                     T instance = clazz.newInstance();
-                    for (Field f : DBFunctions.getMappedFields(clazz)) {
-                        DBFunctions.set(f, instance, getValueFromRS(result, dbFunctions.getColumn(f)));
+                    for (Field f : ColumnHelper.getMappedFields(clazz)) {
+                        DBFunctions.set(f, instance, getValueFromRS(result, ColumnHelper.getColumn(f)));
                     }
                     list.add(instance);
                 }
@@ -122,7 +122,7 @@ public class DB {
         orderBy.forEach(order -> selectThese.add(order.getColumn().columnName));
         selectThese.add(column.columnName);
         String select = "SELECT DISTINCT " + StringUtils.join(selectThese, ", ");
-        Set<String> tables = dbFunctions.getStrings(column.clazz, whereClause);
+        Set<String> tables = ColumnHelper.getTables(column.clazz, whereClause);
         tables.add(column.table);
         Collection<Join> joins = new ArrayList<>();
         if (tables.size() > 1) {
@@ -155,33 +155,33 @@ public class DB {
     }
 
     public <T> void update(T updated) {
-        update(updated, dbFunctions.getMainString(updated));
+        update(updated, ColumnHelper.getMainTable(updated));
     }
 
     public <T> void update(final T updated, String table) {
-        List<Field> all = DBFunctions.getMappedFields(updated.getClass());
+        List<Field> all = ColumnHelper.getMappedFields(updated.getClass());
 
-        Optional<Field> versionField = all.stream().filter(f -> dbFunctions.getColumn(f).type == ColumnType.Version).findFirst();
+        Optional<Field> versionField = all.stream().filter(f -> ColumnHelper.getColumn(f).type == ColumnType.Version).findFirst();
         versionField.ifPresent(field -> {if (DBFunctions.get(field, updated) == null) DBFunctions.set(field, updated, 0);});
 
         List<Field> inMainString = all.stream()
-                .filter(f -> dbFunctions.getColumn(f).table == table)
-                .filter(f -> dbFunctions.getColumn(f).type != ColumnType.PrimaryKey)
+                .filter(f -> ColumnHelper.getColumn(f).table == table)
+                .filter(f -> ColumnHelper.getColumn(f).type != ColumnType.PrimaryKey)
                 .collect(toList());
         List<String> setExpressions = inMainString.stream()
-                .map(f -> dbFunctions.getColumn(f).columnName + " = ?")
+                .map(f -> ColumnHelper.getColumn(f).columnName + " = ?")
                 .collect(Collectors.toList());
         List<Object> params = inMainString.stream()
-                .map(f -> (dbFunctions.getColumn(f).type == ColumnType.Version) ? (1 + (int) DBFunctions.get(f, updated)) : DBFunctions.get(f, updated))
+                .map(f -> (ColumnHelper.getColumn(f).type == ColumnType.Version) ? (1 + (int) DBFunctions.get(f, updated)) : DBFunctions.get(f, updated))
                 .collect(toList());
 
-        Field pk = all.stream().filter(f -> dbFunctions.getColumn(f).type == ColumnType.PrimaryKey).findFirst()
+        Field pk = all.stream().filter(f -> ColumnHelper.getColumn(f).type == ColumnType.PrimaryKey).findFirst()
                 .orElseThrow(() -> new IllegalStateException("Cannot update " + updated.getClass().getName() + " as it has no primary key field"));
 
-        String pkName = dbFunctions.getColumn(pk).columnName;
+        String pkName = ColumnHelper.getColumn(pk).columnName;
         String sql = "UPDATE " + table + " SET " + join(setExpressions, ", ") + " WHERE " + pkName + " = " + DBFunctions.get(pk, updated);
         if (versionField.isPresent()) {
-            String versionName = dbFunctions.getColumn(versionField.get()).columnName;
+            String versionName = ColumnHelper.getColumn(versionField.get()).columnName;
             sql += " AND " + versionName + " = " + DBFunctions.get(versionField.get(), updated);
         }
 
@@ -191,7 +191,7 @@ public class DB {
             if (stmt.executeUpdate() == 0) {
                 String errorMsg = "Could not find row in table " + table + " with " + pkName + " = " + DBFunctions.get(pk, updated);
                 if (versionField.isPresent()) {
-                    errorMsg += " and " + dbFunctions.getColumn(versionField.get()) + " = " + DBFunctions.get(versionField.get(), updated);
+                    errorMsg += " and " + ColumnHelper.getColumn(versionField.get()) + " = " + DBFunctions.get(versionField.get(), updated);
                     throw new ConcurrentModificationException(errorMsg);
                 }
                 throw new RuntimeException(errorMsg);
@@ -221,16 +221,16 @@ public class DB {
     }
 
     public void insert(Object... newOnes) {
-        asList(newOnes).forEach(obj -> insert(obj, dbFunctions.getMainString(obj)));
+        asList(newOnes).forEach(obj -> insert(obj, ColumnHelper.getMainTable(obj)));
     }
 
     public <T> long insert(final T newInstance, String table) {
-        List<Field> all = DBFunctions.getMappedFields(newInstance.getClass());
+        List<Field> all = ColumnHelper.getMappedFields(newInstance.getClass());
         List<Field> inMainString = all.stream()
-                .filter(f -> dbFunctions.getColumn(f).table == table)
-                .filter(f -> dbFunctions.getColumn(f).type != ColumnType.PrimaryKey)
+                .filter(f -> ColumnHelper.getColumn(f).table == table)
+                .filter(f -> ColumnHelper.getColumn(f).type != ColumnType.PrimaryKey)
                 .collect(toList());
-        List<String> fieldNames = inMainString.stream().map(f -> dbFunctions.getColumn(f).columnName).collect(toList());
+        List<String> fieldNames = inMainString.stream().map(f -> ColumnHelper.getColumn(f).columnName).collect(toList());
         List<String> valueMarkers = fieldNames.stream().map(name -> "?").collect(toList());
         List<Object> params = inMainString.stream()
                 .map(f -> DBFunctions.get(f, newInstance))
@@ -244,7 +244,7 @@ public class DB {
 
             newIdRS.next();
             long newId = newIdRS.getLong(1);
-            Optional<Field> pk = all.stream().filter(f -> dbFunctions.getColumn(f).type == ColumnType.PrimaryKey).findFirst();
+            Optional<Field> pk = all.stream().filter(f -> ColumnHelper.getColumn(f).type == ColumnType.PrimaryKey).findFirst();
             if (pk.isPresent()) {
                 DBFunctions.set(pk.get(), newInstance, newId);
             }
@@ -258,9 +258,9 @@ public class DB {
     }
 
     public <T> void delete(Class<T> clazz, Where... where) {
-        String table = dbFunctions.getMainStringForClass(clazz);
+        String table = ColumnHelper.getMainTableForClass(clazz);
         Collection<T> deleted = select(clazz, where);
-        Optional<DatabaseColumn> pk = dbFunctions.getPrimaryKey(table);
+        Optional<DatabaseColumn> pk = ColumnHelper.getPrimaryKey(table);
         String sql = "DELETE FROM " + table + " " + DBFunctions.makeWhere(new ArrayList<Join>(), where);
 
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
@@ -299,13 +299,13 @@ public class DB {
 
     private void manyToManyOperation(Object from, Object to, String sql) {
         String manyToMany = dbFunctions.findManyToManyString(from, to).orElseThrow(()-> new IllegalArgumentException("No mapping table found between " + from + " and " + to));
-        DatabaseColumn fkFrom = dbFunctions.getForeignKey(dbFunctions.getMainString(from), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + from ));
-        DatabaseColumn fkTo = dbFunctions.getForeignKey(dbFunctions.getMainString(to), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + to ));
+        DatabaseColumn fkFrom = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(from), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + from ));
+        DatabaseColumn fkTo = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(to), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + to ));
         String filledOut = String.format(sql, manyToMany,fkFrom.columnName, fkTo.columnName);
 
         try (PreparedStatement stmt = connection.prepareStatement(filledOut)) {
-            Long fromId = (Long) dbFunctions.getPrimaryKeyField(from).get(from);
-            Long toId = (Long) dbFunctions.getPrimaryKeyField(to).get(to);
+            Long fromId = (Long) ColumnHelper.getPrimaryKeyField(from).get(from);
+            Long toId = (Long) ColumnHelper.getPrimaryKeyField(to).get(to);
             stmt.setLong(1, fromId);
             stmt.setLong(2, toId);
             stmt.executeUpdate();

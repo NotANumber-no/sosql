@@ -43,7 +43,6 @@
             <artifactId>junit</artifactId>
             <version>4.11</version>
             <type>jar</type>
-            <scope>test</scope>
         </dependency>
     </dependencies>
     <build>

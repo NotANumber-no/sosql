@@ -9,8 +9,6 @@ import java.util.concurrent.ConcurrentMap;
 
 public class BigBrother {
 
-    private DBFunctions dbFunctions;
-
     public static interface Spy { void suspectAltered(Object suspect); }
 
     private final ConcurrentMap<RowIdentifier, WeakHashMap<Spy, Boolean>> spies = new ConcurrentHashMap<>();
@@ -19,8 +17,7 @@ public class BigBrother {
     // so the main spy-map doesn't fill up with keys that have no living spies left.
     private final ReferenceQueue<Spy> terminatedSpies = new ReferenceQueue<>();
 
-    public BigBrother(DBFunctions dbFunctions) {
-        this.dbFunctions = dbFunctions;
+    public BigBrother() {
         new Thread(() -> {
                 while (!Thread.currentThread().isInterrupted()) {
                     try {
@@ -74,11 +71,11 @@ public class BigBrother {
      */
     public <T> Collection<RowIdentifier> findRowsToSpyOn(T suspect) {
         List<RowIdentifier> keys = new ArrayList<>();
-        Field pkField = dbFunctions.getPrimaryKeyField(suspect);
+        Field pkField = ColumnHelper.getPrimaryKeyField(suspect);
         Object suspectId = DBFunctions.get(pkField, suspect);
-        DatabaseColumn pkColumn = dbFunctions.getColumn(pkField);
+        DatabaseColumn pkColumn = ColumnHelper.getColumn(pkField);
         keys.add(new RowIdentifier(pkColumn, suspectId));
-        dbFunctions.incomingReferenceColumns(pkColumn.table).forEach(col -> keys.add(new RowIdentifier(col, suspectId)));
+        ColumnHelper.incomingReferenceColumns(pkColumn.table).forEach(col -> keys.add(new RowIdentifier(col, suspectId)));
         return keys;
     }
 
@@ -95,11 +92,11 @@ public class BigBrother {
      */
     public <T> Collection<RowIdentifier> findWhoMightBeInterested(T suspect) {
         List<RowIdentifier> keys = new ArrayList<>();
-        Field pkField = dbFunctions.getPrimaryKeyField(suspect);
+        Field pkField = ColumnHelper.getPrimaryKeyField(suspect);
         Object suspectId = DBFunctions.get(pkField, suspect);
-        keys.add(new RowIdentifier(dbFunctions.getColumn(pkField), suspectId));
-        for (Field f : DBFunctions.getMappedFields(suspect.getClass())){
-            DatabaseColumn col = dbFunctions.getColumn(f);
+        keys.add(new RowIdentifier(ColumnHelper.getColumn(pkField), suspectId));
+        for (Field f : ColumnHelper.getMappedFields(suspect.getClass())){
+            DatabaseColumn col = ColumnHelper.getColumn(f);
             if (col.type == ColumnType.ForeignKey){
                 keys.add(new RowIdentifier(col, DBFunctions.get(f, suspect)));
             }
