@@ -409,4 +409,8 @@ public class DB {
             throw new RuntimeException(e);
         }
     }
+
+    public Connection getConnection() {
+        return connection;
+    }
 }
