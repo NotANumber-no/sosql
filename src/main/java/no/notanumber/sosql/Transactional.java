@@ -9,7 +9,7 @@ import java.lang.reflect.Method;
 public class Transactional {
 
     @SuppressWarnings("unchecked")
-    public static <T extends WithDatabase> T transactional(final T dbActions, DBFunctions dbFunctions, BigBrother bigBrother) {
+    public static <T extends WithDatabase> T transactional(final T dbActions) {
 
         ProxyFactory pf = new ProxyFactory();
         pf.setSuperclass(dbActions.getClass());
@@ -18,7 +18,7 @@ public class Transactional {
 
                 @Override
                 public Object invoke(Object self, Method thisMethod, Method proceed, Object[] args) throws Throwable {
-                    DB db = new DB(dbFunctions, bigBrother);
+                    DB db = new DB();
                     dbActions.setDB(db);
                     try {
                         Object returnVal = thisMethod.invoke(dbActions, args);

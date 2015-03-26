@@ -11,13 +11,13 @@ public class BigBrother {
 
     public static interface Spy { void suspectAltered(Object suspect); }
 
-    private final ConcurrentMap<RowIdentifier, WeakHashMap<Spy, Boolean>> spies = new ConcurrentHashMap<>();
-    private List<WeakReference<Spy>> spyRefs = Collections.synchronizedList(new ArrayList<>());
+    private static final ConcurrentMap<RowIdentifier, WeakHashMap<Spy, Boolean>> spies = new ConcurrentHashMap<>();
+    private static List<WeakReference<Spy>> spyRefs = Collections.synchronizedList(new ArrayList<>());
     //Keep track of all weak references created, listen for when they are garbage collected,
     // so the main spy-map doesn't fill up with keys that have no living spies left.
-    private final ReferenceQueue<Spy> terminatedSpies = new ReferenceQueue<>();
+    private static final ReferenceQueue<Spy> terminatedSpies = new ReferenceQueue<>();
 
-    public BigBrother() {
+    static {
         new Thread(() -> {
                 while (!Thread.currentThread().isInterrupted()) {
                     try {
@@ -33,7 +33,7 @@ public class BigBrother {
             }).start();
     }
 
-    public Optional<Set<Spy>> getSpies(RowIdentifier key) {
+    public static Optional<Set<Spy>> getSpies(RowIdentifier key) {
         if (spies.containsKey(key)) {
             return Optional.of(spies.get(key).keySet());
         } else {
@@ -41,17 +41,17 @@ public class BigBrother {
         }
     }
 
-    public void inform(RowIdentifier rowIdentifier, Object suspect) {
+    public static void inform(RowIdentifier rowIdentifier, Object suspect) {
         getSpies(rowIdentifier).orElse(new HashSet<>()).forEach(spy -> spy.suspectAltered(suspect));
     }
 
-    public void informAllAgents(Object... suspects) {
+    public static void informAllAgents(Object... suspects) {
         for (Object suspect : suspects) {
             findWhoMightBeInterested(suspect).forEach(row -> inform(row, suspect));
         }
     }
 
-    public void spyOn(Object suspect, Spy spy) {
+    public static void spyOn(Object suspect, Spy spy) {
         for (RowIdentifier key : findRowsToSpyOn(suspect)) {
             if (!spies.containsKey(key)) {
                 spies.put(key, new WeakHashMap<>());
@@ -69,7 +69,7 @@ public class BigBrother {
      * the Schedule table's schedule_child_id=42
      *
      */
-    public <T> Collection<RowIdentifier> findRowsToSpyOn(T suspect) {
+    public static <T> Collection<RowIdentifier> findRowsToSpyOn(T suspect) {
         List<RowIdentifier> keys = new ArrayList<>();
         Field pkField = ColumnHelper.getPrimaryKeyField(suspect);
         Object suspectId = DBFunctions.get(pkField, suspect);
@@ -90,7 +90,7 @@ public class BigBrother {
      * Could fix this by querying the database from here, will maybe have to do this later,
      * but haven't had the need to so far.
      */
-    public <T> Collection<RowIdentifier> findWhoMightBeInterested(T suspect) {
+    public static <T> Collection<RowIdentifier> findWhoMightBeInterested(T suspect) {
         List<RowIdentifier> keys = new ArrayList<>();
         Field pkField = ColumnHelper.getPrimaryKeyField(suspect);
         Object suspectId = DBFunctions.get(pkField, suspect);

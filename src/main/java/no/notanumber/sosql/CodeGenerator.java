@@ -123,10 +123,5 @@ public class CodeGenerator {
     }
 
 
-    public static void main(String[] args) throws Exception {
-        DBFunctions dbFunctions = new DBFunctions("jdbc:postgresql://localhost/sommerskole?useUnicode=true&characterEncoding=utf8", "postgres", "baxter", 3);
-        generateDO("Trinn", dbFunctions);
-        //createDB();
-    }
 }
 

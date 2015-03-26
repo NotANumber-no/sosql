@@ -20,15 +20,11 @@ public class DB {
 
     private static final Logger log = LoggerFactory.getLogger(DB.class);
 
-    private DBFunctions dbFunctions;
-    private BigBrother bigBrother;
     private Connection connection;
     final List<Runnable> onSuccessActions = new ArrayList<>(); //to be run when transaction completes successfully
 
-    public DB(DBFunctions dbFunctions, BigBrother bigBrother) {
-        this.dbFunctions = dbFunctions;
-        this.bigBrother = bigBrother;
-        this.connection = dbFunctions.getConnection();
+    public DB() {
+        this.connection = DBFunctions.getConnection();
     }
 
     public <T> List<T> select(Class<T> clazz, Where... whereClause) {
@@ -52,7 +48,7 @@ public class DB {
         Set<String> tables = ColumnHelper.getTables(clazz, whereClause);
         Collection<Join> joins = new ArrayList<>();
         if (tables.size() > 1) {
-            joins.addAll(dbFunctions.findJoins(tables));
+            joins.addAll(DBFunctions.findJoins(tables));
             joins.forEach(join -> {
                 tables.add(join.primary.table);
                 tables.add(join.foreign.table);});
@@ -74,7 +70,7 @@ public class DB {
             List<Object> paramList = Arrays.asList(parameters);
             addParameters(stmt, paramList);
             stmt.execute();
-            logSQL(sql, paramList);
+            info(sql, paramList);
         } catch (RuntimeException e) {
             log.error(sql);
             throw e;
@@ -87,7 +83,7 @@ public class DB {
     public <T> List<T> runSQL(Class<T> clazz, String sql, List<Object> parameters) {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             addParameters(stmt, parameters);
-            log.debug(sql);
+            debug(sql, parameters);
             try (ResultSet result = stmt.executeQuery()) {
                 List<T> list = new ArrayList<>();
                 while (result.next()) {
@@ -126,7 +122,7 @@ public class DB {
         tables.add(column.table);
         Collection<Join> joins = new ArrayList<>();
         if (tables.size() > 1) {
-            joins.addAll(dbFunctions.findJoins(tables));
+            joins.addAll(DBFunctions.findJoins(tables));
             joins.forEach(join -> {tables.add(join.primary.table);tables.add(join.foreign.table);});
         }
 
@@ -135,9 +131,11 @@ public class DB {
         List<String> orderByStrings = orderBy.stream().map(by -> by.getColumn().columnName + " " + by.getOrder()).collect(toList());
         String orderByStr = orderBy.isEmpty() ? "" : "ORDER BY " + join(orderByStrings, ",");
         String sql = join(asList(trim(select), trim(from), trim(where), trim(orderByStr)), " ") .replace("  ", " ");
-        log.debug(sql);
+
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            addParameters(stmt, DBFunctions.createParameterList(whereClause));
+            List<Object> params = DBFunctions.createParameterList(whereClause);
+            addParameters(stmt, params);
+            debug(sql, params);
             try (ResultSet result = stmt.executeQuery()) {
                 List<T> list = new ArrayList<>();
                 while (result.next()) {
@@ -199,15 +197,23 @@ public class DB {
             if (versionField.isPresent()) {
                 DBFunctions.set(versionField.get(), updated, (Integer) (DBFunctions.get(versionField.get(), updated)) + 1);
             }
-            logSQL(sql, params);
-            onSuccessActions.add(() -> bigBrother.informAllAgents(updated));
+            info(sql, params);
+            onSuccessActions.add(() -> BigBrother.informAllAgents(updated));
         } catch (SQLException e) {
             log.error(sql);
             throw new RuntimeException(e);
         }
     }
 
-    private void logSQL(String sql, List<Object> params) {
+    private void debug(String sql, List<Object> params) {
+        log.debug(insertParametersInSQL(sql, params));
+    }
+
+    private void info(String sql, List<Object> params) {
+        log.info(insertParametersInSQL(sql, params));
+    }
+
+    private String insertParametersInSQL(String sql, List<Object> params) {
         for (Object p : params) {
             if (p == null) {
                 sql = sql.replaceFirst("\\?", "null");
@@ -217,7 +223,7 @@ public class DB {
                 sql = sql.replaceFirst("\\?", String.valueOf(p));
             }
         }
-        log.info(sql);
+        return sql;
     }
 
     public void insert(Object... newOnes) {
@@ -248,8 +254,8 @@ public class DB {
             if (pk.isPresent()) {
                 DBFunctions.set(pk.get(), newInstance, newId);
             }
-            logSQL(sql, params);
-            onSuccessActions.add(() -> bigBrother.informAllAgents(newInstance));
+            info(sql, params);
+            onSuccessActions.add(() -> BigBrother.informAllAgents(newInstance));
             return newId;
         } catch (Exception e) {
             log.error(sql);
@@ -267,8 +273,8 @@ public class DB {
             List<Object> params = DBFunctions.createParameterList(where);
             addParameters(stmt, params);
             stmt.execute();
-            logSQL(sql, params);
-            onSuccessActions.add(() -> bigBrother.informAllAgents(deleted.toArray()));
+            info(sql, params);
+            onSuccessActions.add(() -> BigBrother.informAllAgents(deleted.toArray()));
         } catch (Exception e) {
             log.error(sql);
             throw new RuntimeException(e);
@@ -298,7 +304,7 @@ public class DB {
     }
 
     private void manyToManyOperation(Object from, Object to, String sql) {
-        String manyToMany = dbFunctions.findManyToManyString(from, to).orElseThrow(()-> new IllegalArgumentException("No mapping table found between " + from + " and " + to));
+        String manyToMany = DBFunctions.findManyToManyString(from, to).orElseThrow(()-> new IllegalArgumentException("No mapping table found between " + from + " and " + to));
         DatabaseColumn fkFrom = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(from), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + from ));
         DatabaseColumn fkTo = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(to), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + to ));
         String filledOut = String.format(sql, manyToMany,fkFrom.columnName, fkTo.columnName);
@@ -309,9 +315,9 @@ public class DB {
             stmt.setLong(1, fromId);
             stmt.setLong(2, toId);
             stmt.executeUpdate();
-            logSQL(filledOut, Arrays.asList(fromId, toId));
-            onSuccessActions.add(() -> bigBrother.inform(new BigBrother.RowIdentifier(fkFrom, fromId), to));
-            onSuccessActions.add(() -> bigBrother.inform(new BigBrother.RowIdentifier(fkTo, toId), from));
+            info(filledOut, Arrays.asList(fromId, toId));
+            onSuccessActions.add(() -> BigBrother.inform(new BigBrother.RowIdentifier(fkFrom, fromId), to));
+            onSuccessActions.add(() -> BigBrother.inform(new BigBrother.RowIdentifier(fkTo, toId), from));
 
         } catch (Exception e) {
             log.error(sql);

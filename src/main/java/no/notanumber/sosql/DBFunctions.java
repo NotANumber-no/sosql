@@ -23,10 +23,33 @@ public class DBFunctions {
     public static final List<Class<Integer>> INT_TYPES = asList(Integer.class, Integer.TYPE);
     public static final List<Class<Long>> LONG_TYPES = asList(Long.class, Long.TYPE);
     public static final List<Class<Boolean>> BOOL_TYPES = asList(Boolean.class, Boolean.TYPE);
-    private final SimpleWeightedGraph<String, JoinEdge> tableGraph;
-    public ComboPooledDataSource pool;
+    private static SimpleWeightedGraph<String, JoinEdge> tableGraph = new SimpleWeightedGraph<String, JoinEdge>(JoinEdge.class) {{
+        ColumnHelper.tables.forEach(this::addVertex);
+        ColumnHelper.columns.stream()
+                .filter(col -> col.type == ColumnType.ForeignKey)
+                .forEach(col -> {
+                    Join join = new Join(ColumnHelper.getPrimaryKey(col.joinedTo).get(), col);
+                    JoinEdge joinEdge = new JoinEdge(join);
+                    addEdge(col.table, col.joinedTo, joinEdge);
 
-    public DBFunctions(String connectionString, String username, String password, int maxConnections) {
+                    /*
+                    the child table is linked to DaycareCenter via a foreign key
+                    So is the grownup table. The child and grownup tables are linked together
+                    via a many-to-many join table. When finding the shortest path from child to
+                    grownup, I want it to find the many-to-many link, not the path via
+                    daycare center. Without a weighted graph, the two paths would be seen
+                    as equally long.  Giving many-to-many edges half the weight of others,
+                    leads to it preferring the many-to-many link in this case. As it should.
+                     */
+
+                    boolean manyToManyLink = !ColumnHelper.getPrimaryKey(col.table).isPresent();
+                    int weight = manyToManyLink ? 1 : 2;
+                    setEdgeWeight(joinEdge, weight);
+                });
+    }};
+
+    public static ComboPooledDataSource pool;
+    public static void setupConnectionPool(String connectionString, String username, String password, int maxConnections) {
         try {
             pool = new ComboPooledDataSource();
             pool.setDriverClass("org.postgresql.Driver");
@@ -39,33 +62,9 @@ public class DBFunctions {
         } catch (PropertyVetoException e) {
             throw new RuntimeException(e);
         }
-        tableGraph = new SimpleWeightedGraph<String, JoinEdge>(JoinEdge.class) {{
-            ColumnHelper.tables.forEach(this::addVertex);
-            ColumnHelper.columns.stream()
-                    .filter(col -> col.type == ColumnType.ForeignKey)
-                    .forEach(col -> {
-                        Join join = new Join(ColumnHelper.getPrimaryKey(col.joinedTo).get(), col);
-                        JoinEdge joinEdge = new JoinEdge(join);
-                        addEdge(col.table, col.joinedTo, joinEdge);
-
-                    /*
-                    the child table is linked to DaycareCenter via a foreign key
-                    So is the grownup table. The child and grownup tables are linked together
-                    via a many-to-many join table. When finding the shortest path from child to
-                    grownup, I want it to find the many-to-many link, not the path via
-                    daycare center. Without a weighted graph, the two paths would be seen
-                    as equally long.  Giving many-to-many edges half the weight of others,
-                    leads to it preferring the many-to-many link in this case. As it should.
-                     */
-
-                        boolean manyToManyLink = !ColumnHelper.getPrimaryKey(col.table).isPresent();
-                        int weight = manyToManyLink ? 1 : 2;
-                        setEdgeWeight(joinEdge, weight);
-                    });
-        }};
     }
 
-    public Connection getConnection() {
+    public static Connection getConnection() {
         try {
             Connection connection = pool.getConnection();
             connection.setAutoCommit(false);
@@ -126,7 +125,7 @@ public class DBFunctions {
                 .collect(toList());
     }
 
-    public Collection<Join> findJoins(Collection<String> tables) {
+    public static Collection<Join> findJoins(Collection<String> tables) {
         Set<Join> joins = new HashSet<>();
         Set<Pair<String, String>> alreadyTried = new HashSet<>();
         for (String a : tables) {
@@ -147,7 +146,7 @@ public class DBFunctions {
         }
     }
 
-    public <A, B> Optional<String> findManyToManyString(A from, B to) {
+    public static <A, B> Optional<String> findManyToManyString(A from, B to) {
         Collection<Join> joins = findJoins(asList(ColumnHelper.getMainTable(from), ColumnHelper.getMainTable(to)));
         for (Join j : joins) {
             boolean manyToManyLinkString = !ColumnHelper.getPrimaryKey(j.foreign.table).isPresent();
