@@ -38,7 +38,8 @@ public class DB {
     public <T> Optional<T> selectOnlyOne(Class<T> clazz, Where... where) {
         List<T> results = select(clazz, where);
         if (results.isEmpty()) return Optional.empty();
-        if (results.size() > 1) throw new IllegalArgumentException("Expected only one value, but got " + results.size() + ". " + Arrays.toString(where));
+        if (results.size() > 1)
+            throw new IllegalArgumentException("Expected only one value, but got " + results.size() + ". " + Arrays.toString(where));
         return Optional.of(results.get(0));
     }
 
@@ -51,7 +52,8 @@ public class DB {
             joins.addAll(DBFunctions.findJoins(tables));
             joins.forEach(join -> {
                 tables.add(join.primary.table);
-                tables.add(join.foreign.table);});
+                tables.add(join.foreign.table);
+            });
         }
 
         String from = " FROM " + join(tables, ", ");
@@ -85,11 +87,14 @@ public class DB {
             addParameters(stmt, parameters);
             debug(sql, parameters);
             try (ResultSet result = stmt.executeQuery()) {
+                List<String> columnNames = getColumnNames(result);
                 List<T> list = new ArrayList<>();
                 while (result.next()) {
                     T instance = clazz.newInstance();
                     for (Field f : ColumnHelper.getMappedFields(clazz)) {
-                        DBFunctions.set(f, instance, getValueFromRS(result, ColumnHelper.getColumn(f)));
+                        if (columnNames.contains(f.getName())) {
+                            DBFunctions.set(f, instance, getValueFromRS(result, ColumnHelper.getColumn(f)));
+                        }
                     }
                     list.add(instance);
                 }
@@ -103,7 +108,16 @@ public class DB {
             throw new RuntimeException(e);
         }
     }
-    public <T> List<T> select(DatabaseColumn column, Class<T> clazz,  Where... whereClause) {
+
+    private List<String> getColumnNames(ResultSet result) throws SQLException {
+        List<String> columnNames = new ArrayList<>();
+        for (int i = 1; i <= result.getMetaData().getColumnCount(); i++) {
+            columnNames.add(result.getMetaData().getColumnName(i));
+        }
+        return columnNames;
+    }
+
+    public <T> List<T> select(DatabaseColumn column, Class<T> clazz, Where... whereClause) {
         return select(column, clazz, new ArrayList<>(), whereClause);
     }
 
@@ -113,7 +127,8 @@ public class DB {
 
     public <T> List<T> select(DatabaseColumn column, Class<T> clazz, List<OrderBy> orderBy, Where... whereClause) {
 
-        if (!column.clazz.isAssignableFrom(clazz)) throw new IllegalArgumentException(column + " is not of type  " + clazz.getSimpleName());
+        if (!column.clazz.isAssignableFrom(clazz))
+            throw new IllegalArgumentException(column + " is not of type  " + clazz.getSimpleName());
         Set<String> selectThese = new HashSet<>();
         orderBy.forEach(order -> selectThese.add(order.getColumn().columnName));
         selectThese.add(column.columnName);
@@ -123,14 +138,17 @@ public class DB {
         Collection<Join> joins = new ArrayList<>();
         if (tables.size() > 1) {
             joins.addAll(DBFunctions.findJoins(tables));
-            joins.forEach(join -> {tables.add(join.primary.table);tables.add(join.foreign.table);});
+            joins.forEach(join -> {
+                tables.add(join.primary.table);
+                tables.add(join.foreign.table);
+            });
         }
 
         String from = " FROM " + join(tables, ",");
         String where = DBFunctions.makeWhere(joins, whereClause);
         List<String> orderByStrings = orderBy.stream().map(by -> by.getColumn().columnName + " " + by.getOrder()).collect(toList());
         String orderByStr = orderBy.isEmpty() ? "" : "ORDER BY " + join(orderByStrings, ",");
-        String sql = join(asList(trim(select), trim(from), trim(where), trim(orderByStr)), " ") .replace("  ", " ");
+        String sql = join(asList(trim(select), trim(from), trim(where), trim(orderByStr)), " ").replace("  ", " ");
 
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             List<Object> params = DBFunctions.createParameterList(whereClause);
@@ -139,7 +157,7 @@ public class DB {
             try (ResultSet result = stmt.executeQuery()) {
                 List<T> list = new ArrayList<>();
                 while (result.next()) {
-                    list.add((T)getValueFromRS(result, column));
+                    list.add((T) getValueFromRS(result, column));
                 }
                 return list;
             }
@@ -160,7 +178,9 @@ public class DB {
         List<Field> all = ColumnHelper.getMappedFields(updated.getClass());
 
         Optional<Field> versionField = all.stream().filter(f -> ColumnHelper.getColumn(f).type == ColumnType.Version).findFirst();
-        versionField.ifPresent(field -> {if (DBFunctions.get(field, updated) == null) DBFunctions.set(field, updated, 0);});
+        versionField.ifPresent(field -> {
+            if (DBFunctions.get(field, updated) == null) DBFunctions.set(field, updated, 0);
+        });
 
         List<Field> inMainString = all.stream()
                 .filter(f -> ColumnHelper.getColumn(f).table == table)
@@ -293,7 +313,6 @@ public class DB {
      * will first find a many-to-many-relationship table that links the two tables Child and GrownUp : GrownUpChild.
      * it will then run the following SQL-statement:
      * INSERT INTO GrownUpChild(gcChildId, gcGrownUpId) VALUES(1,2);
-     *
      */
     public void link(Object from, Object to) {
         manyToManyOperation(from, to, "INSERT INTO %s (%s, %s) VALUES(?, ?)");
@@ -304,10 +323,10 @@ public class DB {
     }
 
     private void manyToManyOperation(Object from, Object to, String sql) {
-        String manyToMany = DBFunctions.findManyToManyString(from, to).orElseThrow(()-> new IllegalArgumentException("No mapping table found between " + from + " and " + to));
-        DatabaseColumn fkFrom = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(from), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + from ));
-        DatabaseColumn fkTo = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(to), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + to ));
-        String filledOut = String.format(sql, manyToMany,fkFrom.columnName, fkTo.columnName);
+        String manyToMany = DBFunctions.findManyToManyString(from, to).orElseThrow(() -> new IllegalArgumentException("No mapping table found between " + from + " and " + to));
+        DatabaseColumn fkFrom = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(from), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + from));
+        DatabaseColumn fkTo = ColumnHelper.getForeignKey(ColumnHelper.getMainTable(to), manyToMany).orElseThrow(() -> new IllegalArgumentException("no foreign keys found for " + to));
+        String filledOut = String.format(sql, manyToMany, fkFrom.columnName, fkTo.columnName);
 
         try (PreparedStatement stmt = connection.prepareStatement(filledOut)) {
             Long fromId = (Long) ColumnHelper.getPrimaryKeyField(from).get(from);
@@ -328,11 +347,11 @@ public class DB {
     public static void addParameters(PreparedStatement stmt, List<Object> params) {
         try {
             for (int i = 1; i <= params.size(); i++) {
-                Object p = params.get(i-1);
+                Object p = params.get(i - 1);
                 if (p == null) {
                     stmt.setObject(i, null);
                 } else if (p instanceof Boolean) {
-                    stmt.setString(i, ((boolean)p?"T":"F"));
+                    stmt.setString(i, ((boolean) p ? "T" : "F"));
                 } else if (p instanceof String) {
                     stmt.setString(i, (String) p);
                 } else if (p instanceof Integer) {
@@ -344,7 +363,7 @@ public class DB {
                 } else if (p.getClass().isEnum()) {
                     stmt.setString(i, ((Enum<?>) p).name());
                 } else if (p.getClass().equals(byte[].class)) {
-                    stmt.setBytes(i, (byte[])p);
+                    stmt.setBytes(i, (byte[]) p);
                 } else {
                     throw new IllegalArgumentException("No mapping found for " + p);
                 }
@@ -373,7 +392,7 @@ public class DB {
         } else if (col.clazz == LocalDateTime.class) {
             Timestamp timestamp = rs.getTimestamp(colName);
             return (rs.wasNull() ? null : timestamp.toLocalDateTime());
-        }else if (col.clazz == byte[].class) {
+        } else if (col.clazz == byte[].class) {
             byte[] array = rs.getBytes(colName);
             return rs.wasNull() ? null : array;
         } else if (col.clazz.isEnum()) {
