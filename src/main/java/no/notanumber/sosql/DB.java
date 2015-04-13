@@ -6,8 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.sql.*;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -360,6 +359,8 @@ public class DB {
                     stmt.setLong(i, (Long) p);
                 } else if (p instanceof LocalDate) {
                     stmt.setInt(i, Integer.parseInt(((LocalDate) p).format(DBFunctions.YYYY_MM_DD)));
+                }else if (p instanceof LocalDateTime) {
+                    stmt.setLong(i, ((LocalDateTime)p).toInstant(ZoneOffset.UTC).getEpochSecond());
                 } else if (p.getClass().isEnum()) {
                     stmt.setString(i, ((Enum<?>) p).name());
                 } else if (p.getClass().equals(byte[].class)) {
@@ -390,8 +391,8 @@ public class DB {
             String dateString = String.valueOf(rs.getInt(colName));
             return (rs.wasNull() ? null : LocalDate.parse(dateString, DBFunctions.YYYY_MM_DD));
         } else if (col.clazz == LocalDateTime.class) {
-            Timestamp timestamp = rs.getTimestamp(colName);
-            return (rs.wasNull() ? null : timestamp.toLocalDateTime());
+            Long time = rs.getLong(colName);
+            return (rs.wasNull() ? null : LocalDateTime.ofInstant(Instant.ofEpochSecond(time), ZoneOffset.UTC));
         } else if (col.clazz == byte[].class) {
             byte[] array = rs.getBytes(colName);
             return rs.wasNull() ? null : array;
